@@ -3,7 +3,7 @@
  * 
  * In this naive approach, a block is allocated by simply incrementing
  * the brk pointer.  A block is pure payload. There are no headers or
- * footers.  Blocks are never coalesced or reused. Realloc is
+ * footers.  Blocks are never merge_blocksd or reused. Realloc is
  * implemented directly using mm_malloc and mm_free.
  *
  * NOTE TO STUDENTS: Replace this header comment with your own header
@@ -35,38 +35,46 @@ team_t team = {
     "cemmel@u.rochester.edu"
 };
 
-//MACROS & DEFINITIONS
+/* single word (4) or double word (8) alignment */
 #define ALIGNMENT 8
+
+/* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
+
+
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
-#define WSIZE 4                                                                             
-#define DSIZE 8                                                                             
-#define CHUNKSIZE 16                                                                       
-#define OVERHEAD 24                                                                         
-#define MAX(x ,y)  ((x) > (y) ? (x) : (y))                                                  
-#define PACK(size, alloc)  ((size) | (alloc))                                               
-#define GET(p)  (*(size_t *)(p))                                                            
-#define PUT(p, value)  (*(size_t *)(p) = (value))                                           
-#define GET_SIZE(p)  (GET(p) & ~0x7)                                                        
-#define GET_ALLOC(p)  (GET(p) & 0x1)                                                        
-#define HDRP(bp)  ((void *)(bp) - WSIZE)                                                    
-#define FTRP(bp)  ((void *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)                              
-#define NEXT_BLKP(bp)  ((void *)(bp) + GET_SIZE(HDRP(bp)))                                  
-#define PREV_BLKP(bp)  ((void *)(bp) - GET_SIZE(HDRP(bp) - WSIZE))                          
-#define NEXT_FREEP(bp)  (*(void **)(bp + DSIZE))                                           
-#define PREV_FREEP(bp)  (*(void **)(bp))                                                   
 
-static char *heap_listp = 0;
-static char *free_listp = 0;                                                                
+#define WORD 4                                                                             
+#define DWORD 8                                                                            
+#define HEAPINIT 16                                                                      
+#define MIN_BLOCK 24  
+#define GET(p)  (*(size_t *)(p))                                                         
+#define WRITE(p, value)  (*(size_t *)(p) = (value))                                                                    
+#define MAX(x ,y)  ((x) > (y) ? (x) : (y))                                               
+#define ADD_SIZE(size, alloc)  ((size) | (alloc))                                             
 
-//Helpers function headers
-static void *extend_heap(size_t words);
-static void  place(void *bp, size_t size);
-static void *find_fit(size_t size);
-static void *coalesce(void *bp);
-static void  insert_at_front(void *bp);
-static void  remove_block(void *bp);
-static int   check_block(void *bp);
+#define GET_HEADER(ptr)  ((void *)(ptr) - WORD)                                                    
+#define GET_FOOTER(ptr)  ((void *)(ptr) + GET_SIZE(GET_HEADER(ptr)) - DWORD)                            
+#define GET_SIZE(p)  (GET(p) & ~0x7)                                                      
+#define GET_ALLOC(p)  (GET(p) & 0x1)                                                       
+              
+#define NEXT_BLOCK(ptr)  ((void *)(ptr) + GET_SIZE(GET_HEADER(ptr)))                                  
+#define PREVIOUS_BLOCK(ptr)  ((void *)(ptr) - GET_SIZE(GET_HEADER(ptr) - WORD))                          
+#define NEXT_OPEN(ptr)  (*(void **)(ptr + DWORD))                                            
+#define PREV_OPEN(ptr)  (*(void **)(ptr))                                                    
+
+static char *block_ptr = 0;
+static char *free_block_ptr = 0;                                                                
+
+//Helper function headers
+static void *heap_exapand(size_t words);
+static void *block_fit(size_t size);
+static void  put_block(void *ptr, size_t size);
+static void delete_block(void *ptr);
+static int is_consistent(void *ptr);
+static void *merge_blocks(void *ptr);
+static void  prepend(void *ptr);
+
 
 /**************************
  * MAIN FUNCTIONS
@@ -77,18 +85,18 @@ static int   check_block(void *bp);
  */
 int mm_init(void)
 {
-    if ((heap_listp = mem_sbrk(OVERHEAD * 2)) == NULL) return -1;//Return on heap failure
+    if ((block_ptr = mem_sbrk(MIN_BLOCK * 2)) == NULL) return -1;//Return on heap failure
     
-    //Manually in'PUT'ting proper format for the initial heap
-    PUT(heap_listp, 0);
-    PUT(heap_listp + WSIZE, PACK(OVERHEAD, 1));
-    PUT(heap_listp + DSIZE, 0);
-    PUT(heap_listp + DSIZE + WSIZE, 0);
-    PUT(heap_listp + OVERHEAD, PACK(OVERHEAD, 1));
-    PUT(heap_listp + WSIZE + OVERHEAD, PACK(0,1));
-    free_listp = DSIZE + heap_listp;
+    //Manually in'WRITE'ting proper format for the initial heap
+    WRITE(block_ptr, 0);
+    WRITE(block_ptr + WORD, ADD_SIZE(MIN_BLOCK, 1));
+    WRITE(block_ptr + DWORD, 0);
+    WRITE(block_ptr + DWORD + WORD, 0);
+    WRITE(block_ptr + MIN_BLOCK, ADD_SIZE(MIN_BLOCK, 1));
+    WRITE(block_ptr + WORD + MIN_BLOCK, ADD_SIZE(0,1));
+    free_block_ptr = DWORD + block_ptr;
 
-    if(extend_heap(CHUNKSIZE / WSIZE) == 0) return -1;
+    if(heap_exapand(HEAPINIT / WORD) == 0) return -1;
 
     return 0;
 }
@@ -99,26 +107,26 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    	size_t adjustedsize;
-	size_t extendedsize;
-	char* bp;
+    	size_t adjusteDWORD;
+	size_t extendeDWORD;
+	char* ptr;
 
 	if(size <= 0) return NULL;
 
-	adjustedsize = MAX(ALIGN(size) + DSIZE, OVERHEAD);
+	adjusteDWORD = MAX(ALIGN(size) + DWORD, MIN_BLOCK);
 
-	if((bp = ((void*) find_fit(adjustedsize))))
+	if((ptr = ((void*) block_fit(adjusteDWORD))))
 	{
-		place(bp, adjustedsize);
-		return bp;
+		put_block(ptr, adjusteDWORD);
+		return ptr;
 	}
 
-	extendedsize = MAX(adjustedsize, CHUNKSIZE);
+	extendeDWORD = MAX(adjusteDWORD, HEAPINIT);
 
-	if((bp =(void*) extend_heap(extendedsize / WSIZE)) == NULL) return NULL;
+	if((ptr =(void*) heap_exapand(extendeDWORD / WORD)) == NULL) return NULL;
 
-	place(bp, adjustedsize);
-	return bp;
+	put_block(ptr, adjusteDWORD);
+	return ptr;
 }
 
 /*
@@ -128,11 +136,11 @@ void mm_free(void *ptr)
 {
 	if(!ptr) return;
 
-	size_t size = GET_SIZE(HDRP(ptr));
+	size_t size = GET_SIZE(GET_HEADER(ptr));
 
-	PUT(HDRP(ptr), PACK(size, 0));
-	PUT(FTRP(ptr), PACK(size, 0));
-	coalesce(ptr);
+	WRITE(GET_HEADER(ptr), ADD_SIZE(size, 0));
+	WRITE(GET_FOOTER(ptr), ADD_SIZE(size, 0));
+	merge_blocks(ptr);
 }
 
 /*
@@ -142,7 +150,7 @@ void *mm_realloc(void *ptr, size_t size)
 {
     size_t prevSize = 0;
     void* ptr2;
-    size_t newSize = MAX(ALIGN(size) + DSIZE, OVERHEAD);
+    size_t neWORD = MAX(ALIGN(size) + DWORD, MIN_BLOCK);
      if(size <= 0)
      {
 	     mm_free(ptr);
@@ -154,18 +162,18 @@ void *mm_realloc(void *ptr, size_t size)
 	     return mm_malloc(size);
      }
 	
-     prevSize = GET_SIZE(HDRP(ptr));
+     prevSize = GET_SIZE(GET_HEADER(ptr));
 
-     if(prevSize == newSize) return ptr;
-     if(newSize <= prevSize)
+     if(prevSize == neWORD) return ptr;
+     if(neWORD <= prevSize)
      {
-	size = newSize;
-     	if(prevSize - size <= OVERHEAD) return ptr;
+	size = neWORD;
+     	if(prevSize - size <= MIN_BLOCK) return ptr;
 
-    	PUT(HDRP(ptr), PACK(size, 1));
-     	PUT(FTRP(ptr), PACK(size, 1));
-     	PUT(HDRP(NEXT_BLKP(ptr)), PACK(prevSize - size, 1));
-     	mm_free(NEXT_BLKP(ptr));
+    	WRITE(GET_HEADER(ptr), ADD_SIZE(size, 1));
+     	WRITE(GET_FOOTER(ptr), ADD_SIZE(size, 1));
+     	WRITE(GET_HEADER(NEXT_BLOCK(ptr)), ADD_SIZE(prevSize - size, 1));
+     	mm_free(NEXT_BLOCK(ptr));
      	return ptr;
      }
 
@@ -182,90 +190,90 @@ void *mm_realloc(void *ptr, size_t size)
  ******************/
 
 //Extends the heap with a specified amount
-static void* extend_heap(size_t words)
+static void* heap_exapand(size_t words)
 {
-	char* bp;
+	char* ptr;
 	size_t size;
 
-	size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
+	size = (words % 2) ? (words + 1) * WORD : words * WORD;
 
-	if (size < OVERHEAD) size = OVERHEAD;
+	if (size < MIN_BLOCK) size = MIN_BLOCK;
 
-	if((long)(bp = (void*) mem_sbrk(size)) == -1) return NULL;
+	if((long)(ptr = (void*) mem_sbrk(size)) == -1) return NULL;
 
-	PUT(HDRP(bp), PACK(size, 0));
-	PUT(FTRP(bp), PACK(size, 0));
-	PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1));
+	WRITE(GET_HEADER(ptr), ADD_SIZE(size, 0));
+	WRITE(GET_FOOTER(ptr), ADD_SIZE(size, 0));
+	WRITE(GET_HEADER(NEXT_BLOCK(ptr)), ADD_SIZE(0,1));
 
-	return coalesce(bp);
+	return merge_blocks(ptr);
 }
 
 
-static void* coalesce(void *bp)
+static void* merge_blocks(void *ptr)
 {
-	size_t previous_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp))) || PREV_BLKP(bp) == bp;
-	size_t next__alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
-	size_t size = GET_SIZE(HDRP(bp));
+	size_t previous_alloc = GET_ALLOC(GET_FOOTER(PREVIOUS_BLOCK(ptr))) || PREVIOUS_BLOCK(ptr) == ptr;
+	size_t next__alloc = GET_ALLOC(GET_HEADER(NEXT_BLOCK(ptr)));
+	size_t size = GET_SIZE(GET_HEADER(ptr));
 
 	if(previous_alloc && !next__alloc)
 	{
-		size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
-		remove_block(NEXT_BLKP(bp));
-		PUT(HDRP(bp), PACK(size, 0));
-		PUT(FTRP(bp), PACK(size, 0));
+		size += GET_SIZE(GET_HEADER(NEXT_BLOCK(ptr)));
+		delete_block(NEXT_BLOCK(ptr));
+		WRITE(GET_HEADER(ptr), ADD_SIZE(size, 0));
+		WRITE(GET_FOOTER(ptr), ADD_SIZE(size, 0));
 	}
 	else if(!previous_alloc && next__alloc)
 	{
-		size += GET_SIZE(HDRP(PREV_BLKP(bp)));
-		bp = PREV_BLKP(bp);
-		remove_block(bp);
-		PUT(HDRP(bp), PACK(size, 0));
-		PUT(FTRP(bp), PACK(size, 0));
+		size += GET_SIZE(GET_HEADER(PREVIOUS_BLOCK(ptr)));
+		ptr = PREVIOUS_BLOCK(ptr);
+		delete_block(ptr);
+		WRITE(GET_HEADER(ptr), ADD_SIZE(size, 0));
+		WRITE(GET_FOOTER(ptr), ADD_SIZE(size, 0));
 	}
 	else if(!previous_alloc && !next__alloc)
 	{
-	        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(HDRP(NEXT_BLKP(bp)));              
-		remove_block(PREV_BLKP(bp));                                                        
-		remove_block(NEXT_BLKP(bp));                                                        
-		bp = PREV_BLKP(bp);                                                                 
-		PUT(HDRP(bp), PACK(size, 0));                                                       
-		PUT(FTRP(bp), PACK(size, 0)); 
+	        size += GET_SIZE(GET_HEADER(PREVIOUS_BLOCK(ptr))) + GET_SIZE(GET_HEADER(NEXT_BLOCK(ptr)));              
+		delete_block(PREVIOUS_BLOCK(ptr));                                                        
+		delete_block(NEXT_BLOCK(ptr));                                                        
+		ptr = PREVIOUS_BLOCK(ptr);                                                                 
+		WRITE(GET_HEADER(ptr), ADD_SIZE(size, 0));                                                       
+		WRITE(GET_FOOTER(ptr), ADD_SIZE(size, 0)); 
 
 	}
 
-	insert_at_front(bp);
-	return bp;
+	prepend(ptr);
+	return ptr;
 }
 
-static void place(void* bp, size_t size)
+static void put_block(void* ptr, size_t size)
 {
-	size_t totalsize = GET_SIZE(HDRP(bp));
+	size_t totalsize = GET_SIZE(GET_HEADER(ptr));
 
-	if((totalsize - size) >= OVERHEAD)
+	if((totalsize - size) >= MIN_BLOCK)
 	{
-		PUT(HDRP(bp), PACK(size, 1));
-		PUT(FTRP(bp), PACK(size, 1));
-		remove_block(bp);
-		bp = NEXT_BLKP(bp);
-		PUT(HDRP(bp), PACK(totalsize - size, 0));
-		PUT(FTRP(bp), PACK(totalsize - size, 0));
-		coalesce(bp);
+		WRITE(GET_HEADER(ptr), ADD_SIZE(size, 1));
+		WRITE(GET_FOOTER(ptr), ADD_SIZE(size, 1));
+		delete_block(ptr);
+		ptr = NEXT_BLOCK(ptr);
+		WRITE(GET_HEADER(ptr), ADD_SIZE(totalsize - size, 0));
+		WRITE(GET_FOOTER(ptr), ADD_SIZE(totalsize - size, 0));
+		merge_blocks(ptr);
 	}
 	else
 	{
-		PUT(HDRP(bp), PACK(totalsize, 1));
-		PUT(FTRP(bp), PACK(totalsize, 1));
-		remove_block(bp);
+		WRITE(GET_HEADER(ptr), ADD_SIZE(totalsize, 1));
+		WRITE(GET_FOOTER(ptr), ADD_SIZE(totalsize, 1));
+		delete_block(ptr);
 	}
 }
 
-static void* find_fit(size_t size)
+static void* block_fit(size_t size)
 {
-	void* bp;
+	void* ptr;
 	
-	for(bp = free_listp; GET_ALLOC(HDRP(bp)) == 0; bp = NEXT_FREEP(bp))
+	for(ptr = free_block_ptr; GET_ALLOC(GET_HEADER(ptr)) == 0; ptr = NEXT_OPEN(ptr))
 	{
-		if(size <= GET_SIZE(HDRP(bp))) return bp;
+		if(size <= GET_SIZE(GET_HEADER(ptr))) return ptr;
 	}
 
 	return NULL;
@@ -273,38 +281,38 @@ static void* find_fit(size_t size)
 
 
 
-static void  insert_at_front(void *bp){
-	        NEXT_FREEP(bp) = free_listp;
-		        PREV_FREEP(free_listp) = bp;
-			        PREV_FREEP(bp) = NULL;
-				        free_listp = bp;
+static void  prepend(void *ptr){
+	        NEXT_OPEN(ptr) = free_block_ptr;
+		        PREV_OPEN(free_block_ptr) = ptr;
+			        PREV_OPEN(ptr) = NULL;
+				        free_block_ptr = ptr;
 }
 
-static void  remove_block(void *bp){
-	        if(PREV_FREEP(bp)){
-			                if(PREV_FREEP(bp)){
-						                        NEXT_FREEP(PREV_FREEP(bp)) = NEXT_FREEP(bp);}
+static void  delete_block(void *ptr){
+	        if(PREV_OPEN(ptr)){
+			                if(PREV_OPEN(ptr)){
+						                        NEXT_OPEN(PREV_OPEN(ptr)) = NEXT_OPEN(ptr);}
 					        }
 		        else{
-				                free_listp = NEXT_FREEP(bp);
+				                free_block_ptr = NEXT_OPEN(ptr);
 						        }
-			        PREV_FREEP(NEXT_FREEP(bp)) = PREV_FREEP(bp);
+			        PREV_OPEN(NEXT_OPEN(ptr)) = PREV_OPEN(ptr);
 }
 
 int mm_check(void){
-           void *bp = heap_listp;                                                                  //Points to the first block in the heap
-       printf("Heap (%p): \n", heap_listp);                                                    //Print the address of the heap
+           void *ptr = block_ptr;                                                                  //Points to the first block in the heap
+       printf("Heap (%p): \n", block_ptr);                                                    //Print the address of the heap
 
-    if((GET_SIZE(HDRP(heap_listp)) != OVERHEAD) || !GET_ALLOC(HDRP(heap_listp))){           //If the first block's header's size or allocated bit is wrong
+    if((GET_SIZE(GET_HEADER(block_ptr)) != MIN_BLOCK) || !GET_ALLOC(GET_HEADER(block_ptr))){           //If the first block's header's size or allocated bit is wrong
              printf("Fatal: Bad prologue header\n");                                             //Throw error
          return -1;
     }
-    if(check_block(heap_listp) == -1){                                                      //Check the block for consistency
+    if(is_consistent(block_ptr) == -1){                                                      //Check the block for consistency
 	        return -1;
 	        }
 
-    for(bp = free_listp; GET_ALLOC(HDRP(bp)) == 0; bp = NEXT_FREEP(bp)){                    //Check all the blocks of free list for consistency
-	         if(check_block(bp) == -1){                                                         //If inconsistency
+    for(ptr = free_block_ptr; GET_ALLOC(GET_HEADER(ptr)) == 0; ptr = NEXT_OPEN(ptr)){                    //Check all the blocks of free list for consistency
+	         if(is_consistent(ptr) == -1){                                                         //If inconsistency
 		                     return -1;                                                                  //Throw error
 			             }
         }
@@ -312,24 +320,24 @@ int mm_check(void){
     return 0;                                                                               //No inconsistency
 }    
 
-static int check_block(void *bp){
+static int is_consistent(void *ptr){
 
-	if(NEXT_FREEP(bp) < mem_heap_lo() || NEXT_FREEP(bp) > mem_heap_hi()){
-		        printf("Fatal: Next free pointer %p is out of bounds\n", NEXT_FREEP(bp));
+	if(NEXT_OPEN(ptr) < mem_heap_lo() || NEXT_OPEN(ptr) > mem_heap_hi()){
+		        printf("Fatal: Next free pointer %p is out of bounds\n", NEXT_OPEN(ptr));
 			        return -1;
 				    }
 
-	    if(PREV_FREEP(bp) < mem_heap_lo() || PREV_FREEP(bp) > mem_heap_hi()){
-		                        printf("Fatal: Previous free pointer %p is oiut of bounds", PREV_FREEP(bp));
+	    if(PREV_OPEN(ptr) < mem_heap_lo() || PREV_OPEN(ptr) > mem_heap_hi()){
+		                        printf("Fatal: Previous free pointer %p is oiut of bounds", PREV_OPEN(ptr));
 					                            return -1;
 								                                    }
 
-	            if((size_t)bp % 8){
-			                            printf("Fatal: %p is not aligned", bp);
+	            if((size_t)ptr % 8){
+			                            printf("Fatal: %p is not aligned", ptr);
 						                                    return -1;
 										                                        }
 
-		                if(GET(HDRP(bp)) != GET(FTRP(bp))){
+		                if(GET(GET_HEADER(ptr)) != GET(GET_FOOTER(ptr))){
 					                            printf("Fatal: Header and footer mismatch");                                  
 								                                        return -1;
 													                                        }
