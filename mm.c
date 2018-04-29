@@ -131,6 +131,13 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
+	if(!ptr) return;
+
+	size_t size = GET_SIZE(HDRP(ptr));
+
+	PUT(HDRP(ptr), PACK(size, 0));
+	PUT(FTRP(ptr), PACK(size, 0));
+	coalesce(ptr);
 }
 
 /*
@@ -138,19 +145,39 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
-    
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
-      return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    if (size < copySize)
-      copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    size_t prevSize;
+    void* ptr2;
+    size_t newSize = MAX(ALIGN(size) + DSIZE, OVERHEAD);
+     if(size <= 0)
+     {
+	     mm_free(ptr);
+	     return 0;
+     }
+
+     if(ptr == NULL)
+     {
+	     return mm_malloc(size);
+     }
+
+     if(prevSize == newSize) return ptr;
+     if(newSize <= prevSize)
+     {
+	size = newSize;
+     	if(prevSize - size <= OVERHEAD) return ptr;
+
+    	PUT(HDRP(ptr), PACK(size, 1));
+     	PUT(FTRP(ptr), PACK(size, 1));
+     	PUT(HDRP(NEXT_BLKP(ptr)), PACK(prevSize - size, 1));
+     	mm_free(NEXT_BLKP(ptr));
+     	return ptr;
+     }
+
+     ptr2 = mm_malloc(size);
+     if(!ptr2) return 0;
+     if (size < prevSize) prevSize = size;
+     memcpy(ptr2, ptr, prevSize);
+     mm_free(ptr);
+     return ptr2;
 }
 
 /*******************
