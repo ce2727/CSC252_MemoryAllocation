@@ -74,6 +74,9 @@ static void  insert_at_front(void *bp);
 static void  remove_block(void *bp);
 static int   check_block(void *bp);
 
+/**************************
+ * MAIN FUNCTIONS
+ **************************/
 
 /* 
  * mm_init - initialize the malloc package.
@@ -140,15 +143,65 @@ void *mm_realloc(void *ptr, size_t size)
     return newptr;
 }
 
+/*******************
+ * HELPER FUNCTIONS
+ ******************/
+
+//Extends the heap with a specified amount
+static void* extend_heap(size_t words)
+{
+	char* bp;
+	size_t size;
+
+	size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE);
+
+	if (size < OVERHEAD) size = OVERHEAD;
+
+	if((long)(bp = memsbrk(size)) == -1) return NULL;
+
+	PUT(HDRP(bp), PACK(size, 0));
+	PUT(FTRP(bp), PACK(size, 0));
+	PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1));
+
+	return coalesce(bp);
+}
 
 
+static void* coalesce(void *bp)
+{
+	size_t previous_alloc = GET_ALLOC(FTRP(PREVBLKP(bp))) || PREV_BLKP(bp) == bp;
+	size_t next__alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+	size_t size = GET_SIZE(HDRP(bp));
 
+	if(previous_alloc && !next__alloc)
+	{
+		size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+		remove_block(NEXT_BLKP(bp));
+		PUT(HDRP(bp), PACK(size, 0));
+		PUT(FTRP(bp), PACK(size, 0));
+	}
+	else if(!previous_alloc && next__alloc)
+	{
+		size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+		bp = PREV_BLKP(bp);
+		remove_block(bp);
+		PUT(HDRP(bp), PACK(size, 0);
+		PUT(FTRP(bp), PACK(size, 0);
+	}
+	else if(!previous_alloc && !next__alloc)
+	{
+	        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(HDRP(NEXT_BLKP(bp)));              
+		remove_block(PREV_BLKP(bp));                                                        
+		remove_block(NEXT_BLKP(bp));                                                        
+		bp = PREV_BLKP(bp);                                                                 
+		PUT(HDRP(bp), PACK(size, 0));                                                       
+		PUT(FTRP(bp), PACK(size, 0)); 
 
+	}
 
-
-
-
-
+	insert_at_front(bp);
+	return bp;
+}
 
 
 
