@@ -104,15 +104,26 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    int newsize = ALIGN(size + SIZE_T_SIZE);
-    void *p = mem_sbrk(newsize);
-    if (p == (void *)-1)
-	return NULL;
-    else {
-        *(size_t *)p = size;
-        return (void *)((char *)p + SIZE_T_SIZE);
-    }
+    	size_t adjustedsize;
+	size_t extendedsize;
+	char* bp;
 
+	if(size <= 0) return NULL;
+
+	adjustedsize = MAX(ALIGN(size) + DSIZE, OVERHEAD);
+
+	if(bp = fint_fit(adjustedsize))
+	{
+		place(bp, adjustedsize);
+		return bp;
+	}
+
+	extendedsize = MAX(adjustedsize, CHUNKSIZE);
+
+	if((bp = extended_heap(extendedsize / WSIZE)) == NULL) return NULL;
+
+	place(bp, adjustedsize);
+	return bp;
 }
 
 /*
