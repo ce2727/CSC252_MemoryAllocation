@@ -158,6 +158,8 @@ void *mm_realloc(void *ptr, size_t size)
      {
 	     return mm_malloc(size);
      }
+	
+     prevSize = GET_SIZE(HDRP(ptr));
 
      if(prevSize == newSize) return ptr;
      if(newSize <= prevSize)
