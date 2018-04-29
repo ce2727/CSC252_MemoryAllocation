@@ -163,7 +163,7 @@ static void* extend_heap(size_t words)
 	char* bp;
 	size_t size;
 
-	size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE);
+	size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
 
 	if (size < OVERHEAD) size = OVERHEAD;
 
@@ -195,8 +195,8 @@ static void* coalesce(void *bp)
 		size += GET_SIZE(HDRP(PREV_BLKP(bp)));
 		bp = PREV_BLKP(bp);
 		remove_block(bp);
-		PUT(HDRP(bp), PACK(size, 0);
-		PUT(FTRP(bp), PACK(size, 0);
+		PUT(HDRP(bp), PACK(size, 0));
+		PUT(FTRP(bp), PACK(size, 0));
 	}
 	else if(!previous_alloc && !next__alloc)
 	{
@@ -217,7 +217,7 @@ static void place(void* bp, size_t size)
 {
 	size_t totalsize = GET_SIZE(HDRP(bp));
 
-	if((totalsize - size) >= OVERHEARD);
+	if((totalsize - size) >= OVERHEAD)
 	{
 		PUT(HDRP(bp), PACK(size, 1));
 		PUT(FTRP(bp), PACK(size, 1));
@@ -245,4 +245,48 @@ static void* find_fit(size_t size)
 	}
 
 	return NULL;
+}
+
+
+
+static void  insert_at_front(void *bp){
+	        NEXT_FREEP(bp) = free_listp;
+		        PREV_FREEP(free_listp) = bp;
+			        PREV_FREEP(bp) = NULL;
+				        free_listp = bp;
+}
+
+static void  remove_block(void *bp){
+	        if(PREV_FREEP(bp)){
+			                if(PREV_FREEP(bp)){
+						                        NEXT_FREEP(PREV_FREEP(bp)) = NEXT_FREEP(bp);}
+					        }
+		        else{
+				                free_listp = NEXTFREEP(bp);
+						        }
+			        PREV_FREEP(NEXT_FREEP(bp)) = PREV_FREEP(bp);
+}
+
+static int   check_block(void *bp){
+
+	if(NEXT_FREEP(bp) < mem_heap_lo() || NEXT_FREEP(bp) > mem_heap_hi()){
+		        printf("Fatal: Next free pointer %p is out of bounds\n", NEXT_FREEP(bp));
+			        return -1;
+				    }
+
+	    if(PREV_FREEP(bp) < mem_heap_lo() || PREV_FREEP(bp) > mem_heap_hi()){
+		                        printf("Fatal: Previous free pointer %p is oiut of bounds", PREV_FREEP(bp));
+					                            return -1;
+								                                    }
+
+	            if((size_t)bp % 8){
+			                            printf("Fatal: %p is not aligned", bp);
+						                                    return -1;
+										                                        }
+
+		                if(GET(HDRP(bp)) != GET(FTRP(bp))){
+					                            printf("Fatal: Header and footer mismatch");                                  
+								                                        return -1;
+													                                        }
+				                return 0;
 }
