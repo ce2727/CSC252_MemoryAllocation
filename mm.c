@@ -203,6 +203,26 @@ static void* coalesce(void *bp)
 	return bp;
 }
 
+static void place(void* bp, size_t size)
+{
+	size_t totalsize = GET_SIZE(HDRP(bp));
 
+	if((totalsize - size) >= OVERHEARD);
+	{
+		PUT(HDRP(bp), PACK(size, 1));
+		PUT(FTRP(bp), PACK(size, 1));
+		remove_block(bp);
+		bp = NEXT_BLKP(bp);
+		PUT(HDRP(bp), PACK(totalsize - size, 0));
+		PUT(FTRP(bp), PACK(totalsize - size, 0));
+		coalesce(bp);
+	}
+	else
+	{
+		PUT(HDRP(bp), PACK(totalsize, 1));
+		PUT(FTRP(bp), PACK(totalsize, 1));
+		remove_block(bp);
+	}
+}
 
 
