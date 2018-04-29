@@ -67,7 +67,7 @@ static char *block_ptr = 0;
 static char *free_block_ptr = 0;                                                                
 
 //Helper function headers
-static void *heap_exapand(size_t words);
+static void *heap_expand(size_t words);
 static void *block_fit(size_t size);
 static void  put_block(void *ptr, size_t size);
 static void delete_block(void *ptr);
@@ -94,9 +94,10 @@ int mm_init(void)
     WRITE(block_ptr + DWORD + WORD, 0);
     WRITE(block_ptr + MIN_BLOCK, ADD_SIZE(MIN_BLOCK, 1));
     WRITE(block_ptr + WORD + MIN_BLOCK, ADD_SIZE(0,1));
+    
     free_block_ptr = DWORD + block_ptr;
 
-    if(heap_exapand(HEAPINIT / WORD) == 0) return -1;
+    if(heap_expand(HEAPINIT / WORD) == 0) return -1;//Make sure it didn't break
 
     return 0;
 }
@@ -107,25 +108,25 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    	size_t adjusteDWORD;
-	size_t extendeDWORD;
+    	size_t correctedWord;
+	size_t maxWord;
 	char* ptr;
 
 	if(size <= 0) return NULL;
 
-	adjusteDWORD = MAX(ALIGN(size) + DWORD, MIN_BLOCK);
+	correctedWord = MAX(ALIGN(size) + DWORD, MIN_BLOCK);
 
-	if((ptr = ((void*) block_fit(adjusteDWORD))))
+	if((ptr = ((void*) block_fit(correctedWord))))
 	{
-		put_block(ptr, adjusteDWORD);
+		put_block(ptr, correctedWord);
 		return ptr;
 	}
 
-	extendeDWORD = MAX(adjusteDWORD, HEAPINIT);
+	maxWord = MAX(correctedWord, HEAPINIT);
 
-	if((ptr =(void*) heap_exapand(extendeDWORD / WORD)) == NULL) return NULL;
+	if((ptr =(void*) heap_expand(maxWord / WORD)) == NULL) return NULL;
 
-	put_block(ptr, adjusteDWORD);
+	put_block(ptr, correctedWord);
 	return ptr;
 }
 
@@ -135,12 +136,10 @@ void *mm_malloc(size_t size)
 void mm_free(void *ptr)
 {
 	if(!ptr) return;
-
 	size_t size = GET_SIZE(GET_HEADER(ptr));
-
-	WRITE(GET_HEADER(ptr), ADD_SIZE(size, 0));
+	WRITE(GET_HEADER(ptr), ADD_SIZE(size, 0));//Simply sets lengths of headers/footers to 0
 	WRITE(GET_FOOTER(ptr), ADD_SIZE(size, 0));
-	merge_blocks(ptr);
+	merge_blocks(ptr);//Absorb any surrounding free blocks, if any
 }
 
 /*
@@ -150,10 +149,11 @@ void *mm_realloc(void *ptr, size_t size)
 {
     size_t prevSize = 0;
     void* ptr2;
-    size_t neWORD = MAX(ALIGN(size) + DWORD, MIN_BLOCK);
-     if(size <= 0)
-     {
-	     mm_free(ptr);
+    size_t newWord = MAX(ALIGN(size) + DWORD, MIN_BLOCK);
+    
+    if(size <= 0)
+     { 
+	     mm_free(ptr); 
 	     return 0;
      }
 
@@ -164,10 +164,10 @@ void *mm_realloc(void *ptr, size_t size)
 	
      prevSize = GET_SIZE(GET_HEADER(ptr));
 
-     if(prevSize == neWORD) return ptr;
-     if(neWORD <= prevSize)
+     if(prevSize == newWord) return ptr;
+     if(newWord <= prevSize)
      {
-	size = neWORD;
+	size = newWord;
      	if(prevSize - size <= MIN_BLOCK) return ptr;
 
     	WRITE(GET_HEADER(ptr), ADD_SIZE(size, 1));
@@ -178,8 +178,10 @@ void *mm_realloc(void *ptr, size_t size)
      }
 
      ptr2 = mm_malloc(size);
+
      if(!ptr2) return 0;
      if (size < prevSize) prevSize = size;
+     
      memcpy(ptr2, ptr, prevSize);
      mm_free(ptr);
      return ptr2;
