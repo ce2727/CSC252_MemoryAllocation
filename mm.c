@@ -82,7 +82,7 @@ static int   check_block(void *bp);
  */
 int mm_init(void)
 {
-    if ((heap_listp = memsbrk(OVERHEAD * 2)) == NULL) return -1;//Return on heap failure
+    if ((heap_listp = mem_sbrk(OVERHEAD * 2)) == NULL) return -1;//Return on heap failure
     
     //Manually in'PUT'ting proper format for the initial heap
     PUT(heap_listp, 0);
@@ -93,7 +93,7 @@ int mm_init(void)
     PUT(heap_listp + WSIZE + OVERHEAD, PACK(0,1));
     free_listp = DSIZE + heap_listp;
 
-    if(extended_heap(CHUNKSIZE / WSIZE) == NULL) return -1;
+    if(extend_heap(CHUNKSIZE / WSIZE) == 0) return -1;
 
     return 0;
 }
@@ -112,7 +112,7 @@ void *mm_malloc(size_t size)
 
 	adjustedsize = MAX(ALIGN(size) + DSIZE, OVERHEAD);
 
-	if(bp = fint_fit(adjustedsize))
+	if((bp = ((void*) find_fit(adjustedsize))))
 	{
 		place(bp, adjustedsize);
 		return bp;
@@ -120,7 +120,7 @@ void *mm_malloc(size_t size)
 
 	extendedsize = MAX(adjustedsize, CHUNKSIZE);
 
-	if((bp = extended_heap(extendedsize / WSIZE)) == NULL) return NULL;
+	if((bp =(void*) extend_heap(extendedsize / WSIZE)) == NULL) return NULL;
 
 	place(bp, adjustedsize);
 	return bp;
@@ -145,7 +145,7 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    size_t prevSize;
+    size_t prevSize = 0;
     void* ptr2;
     size_t newSize = MAX(ALIGN(size) + DSIZE, OVERHEAD);
      if(size <= 0)
@@ -194,7 +194,7 @@ static void* extend_heap(size_t words)
 
 	if (size < OVERHEAD) size = OVERHEAD;
 
-	if((long)(bp = memsbrk(size)) == -1) return NULL;
+	if((long)(bp = (void*) mem_sbrk(size)) == -1) return NULL;
 
 	PUT(HDRP(bp), PACK(size, 0));
 	PUT(FTRP(bp), PACK(size, 0));
@@ -206,7 +206,7 @@ static void* extend_heap(size_t words)
 
 static void* coalesce(void *bp)
 {
-	size_t previous_alloc = GET_ALLOC(FTRP(PREVBLKP(bp))) || PREV_BLKP(bp) == bp;
+	size_t previous_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp))) || PREV_BLKP(bp) == bp;
 	size_t next__alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
 	size_t size = GET_SIZE(HDRP(bp));
 
@@ -289,12 +289,33 @@ static void  remove_block(void *bp){
 						                        NEXT_FREEP(PREV_FREEP(bp)) = NEXT_FREEP(bp);}
 					        }
 		        else{
-				                free_listp = NEXTFREEP(bp);
+				                free_listp = NEXT_FREEP(bp);
 						        }
 			        PREV_FREEP(NEXT_FREEP(bp)) = PREV_FREEP(bp);
 }
 
-static int   check_block(void *bp){
+int mm_check(void){
+           void *bp = heap_listp;                                                                  //Points to the first block in the heap
+       printf("Heap (%p): \n", heap_listp);                                                    //Print the address of the heap
+
+    if((GET_SIZE(HDRP(heap_listp)) != OVERHEAD) || !GET_ALLOC(HDRP(heap_listp))){           //If the first block's header's size or allocated bit is wrong
+             printf("Fatal: Bad prologue header\n");                                             //Throw error
+         return -1;
+    }
+    if(check_block(heap_listp) == -1){                                                      //Check the block for consistency
+	        return -1;
+	        }
+
+    for(bp = free_listp; GET_ALLOC(HDRP(bp)) == 0; bp = NEXT_FREEP(bp)){                    //Check all the blocks of free list for consistency
+	         if(check_block(bp) == -1){                                                         //If inconsistency
+		                     return -1;                                                                  //Throw error
+			             }
+        }
+
+    return 0;                                                                               //No inconsistency
+}    
+
+static int check_block(void *bp){
 
 	if(NEXT_FREEP(bp) < mem_heap_lo() || NEXT_FREEP(bp) > mem_heap_hi()){
 		        printf("Fatal: Next free pointer %p is out of bounds\n", NEXT_FREEP(bp));
