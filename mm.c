@@ -9,10 +9,13 @@
  * NOTE TO STUDENTS: Replace this header comment with your own header
  * comment that gives a high level description of your solution.
  */
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <unistd.h>
+#include <string.h>
 
-#include < stdio.h > #include < stdlib.h > #include < assert.h > #include < unistd.h > #include < string.h >
-
-  #include "mm.h"
+#include "mm.h"
 #include "memlib.h"
 
 /*********************************************************
@@ -20,53 +23,58 @@
  * provide your team information in the following struct.
  ********************************************************/
 team_t team = {
-  /* Team name */
-  "bcalabre+cemmel",
-  /* First member's full name */
-  "Brent Calabresi",
-  /* First member's email address */
-  "bcalabre@u.rochester.edu",
-  /* Second member's full name (leave blank if none) */
-  "Clayton Emmel",
-  /* Second member's email address (leave blank if none) */
-  "cemmel@u.rochester.edu"
+    /* Team name */
+    "bcalabre+cemmel",
+    /* First member's full name */
+    "Brent Calabresi",
+    /* First member's email address */
+    "bcalabre@u.rochester.edu",
+    /* Second member's full name (leave blank if none) */
+    "Clayton Emmel",
+    /* Second member's email address (leave blank if none) */
+    "cemmel@u.rochester.edu"
 };
 
 /* single word (4) or double word (8) alignment */
-#
-define ALIGNMENT 8
+#define ALIGNMENT 8
 
 /* rounds up to the nearest multiple of ALIGNMENT */
-# define ALIGN(size)(((size) + (ALIGNMENT - 1)) & ~0x7)
+#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
-# define SIZE_T_SIZE(ALIGN(sizeof(size_t)))
 
-# define WORD 4
-# define DWORD 8
-# define HEAPINIT 16# define MIN_BLOCK 24
-# define GET(p)( * (size_t * )(p))# define WRITE(p, value)( * (size_t * )(p) = (value))
-# define MAX(x, y)((x) > (y) ? (x) : (y))# define ADD_SIZE(size, alloc)((size) | (alloc))
+#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-# define GET_HEADER(ptr)((void * )(ptr) - WORD)
-# define GET_FOOTER(ptr)((void * )(ptr) + GET_SIZE(GET_HEADER(ptr)) - DWORD)
-# define GET_SIZE(p)(GET(p) & ~0x7)
-# define GET_ALLOC(p)(GET(p) & 0x1)
+#define WORD 4                                                                             
+#define DWORD 8                                                                            
+#define HEAPINIT 16                                                                      
+#define MIN_BLOCK 24  
+#define GET(p)  (*(size_t *)(p))                                                         
+#define WRITE(p, value)  (*(size_t *)(p) = (value))                                                                    
+#define MAX(x ,y)  ((x) > (y) ? (x) : (y))                                               
+#define ADD_SIZE(size, alloc)  ((size) | (alloc))                                             
 
-# define NEXT_BLOCK(ptr)((void * )(ptr) + GET_SIZE(GET_HEADER(ptr)))
-# define PREVIOUS_BLOCK(ptr)((void * )(ptr) - GET_SIZE(GET_HEADER(ptr) - WORD))
-# define NEXT_OPEN(ptr)( * (void * * )(ptr + DWORD))# define PREV_OPEN(ptr)( * (void * * )(ptr))
+#define GET_HEADER(ptr)  ((void *)(ptr) - WORD)                                                    
+#define GET_FOOTER(ptr)  ((void *)(ptr) + GET_SIZE(GET_HEADER(ptr)) - DWORD)                            
+#define GET_SIZE(p)  (GET(p) & ~0x7)                                                      
+#define GET_ALLOC(p)  (GET(p) & 0x1)                                                       
+              
+#define NEXT_BLOCK(ptr)  ((void *)(ptr) + GET_SIZE(GET_HEADER(ptr)))                                  
+#define PREVIOUS_BLOCK(ptr)  ((void *)(ptr) - GET_SIZE(GET_HEADER(ptr) - WORD))                          
+#define NEXT_OPEN(ptr)  (*(void **)(ptr + DWORD))                                            
+#define PREV_OPEN(ptr)  (*(void **)(ptr))                                                    
 
-static char * block_ptr = 0;
-static char * free_block_ptr = 0;
+static char* block_ptr = 0;
+static char* free_block_ptr = 0;                                                                
 
 //Helper function headers
-static void * heap_expand(size_t words);
-static void * block_fit(size_t size);
-static void put_block(void * ptr, size_t size);
-static void delete_block(void * ptr);
-static int is_consistent(void * ptr);
-static void * merge_blocks(void * ptr);
-static void prepend(void * ptr);
+static void *heap_expand(size_t words);
+static void *block_fit(size_t size);
+static void  put_block(void *ptr, size_t size);
+static void delete_block(void *ptr);
+static int is_consistent(void *ptr);
+static void *merge_blocks(void *ptr);
+static void  prepend(void *ptr);
+
 
 /**************************
  * MAIN FUNCTIONS
@@ -79,6 +87,7 @@ static void prepend(void * ptr);
  {
      if ((block_ptr = mem_sbrk(MIN_BLOCK * 2)) == NULL) return -1;//Return on heap failure
      
+     //Manually in'WRITE'ting proper format for the initial heap
      WRITE(block_ptr, 0);
      WRITE(block_ptr + WORD, ADD_SIZE(MIN_BLOCK, 1));
      WRITE(block_ptr + DWORD, 0);
