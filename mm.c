@@ -35,31 +35,26 @@ team_t team = {
     "cemmel@u.rochester.edu"
 };
 
-/* single word (4) or double word (8) alignment */
+//MACROS & DEFINITIONS
 #define ALIGNMENT 8
-
-/* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
-
-
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
-
-#define WSIZE 4                                                                             //Size of a word
-#define DSIZE 8                                                                             //Size of a double word
-#define CHUNKSIZE 16                                                                        //Initial heap size
-#define OVERHEAD 24                                                                         //The minimum block size
-#define MAX(x ,y)  ((x) > (y) ? (x) : (y))                                                  //Finds the maximum of two numbers
-#define PACK(size, alloc)  ((size) | (alloc))                                               //Put the size and allocated byte into one word
-#define GET(p)  (*(size_t *)(p))                                                            //Read the word at address p
-#define PUT(p, value)  (*(size_t *)(p) = (value))                                           //Write the word at address p
-#define GET_SIZE(p)  (GET(p) & ~0x7)                                                        //Get the size from header/footer
-#define GET_ALLOC(p)  (GET(p) & 0x1)                                                        //Get the allocated bit from header/footer
-#define HDRP(bp)  ((void *)(bp) - WSIZE)                                                    //Get the address of the header of a block
-#define FTRP(bp)  ((void *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)                               //Get the address of the footer of a block
-#define NEXT_BLKP(bp)  ((void *)(bp) + GET_SIZE(HDRP(bp)))                                  //Get the address of the next block
-#define PREV_BLKP(bp)  ((void *)(bp) - GET_SIZE(HDRP(bp) - WSIZE))                          //Get the address of the previous block
-#define NEXT_FREEP(bp)  (*(void **)(bp + DSIZE))                                            //Get the address of the next free block
-#define PREV_FREEP(bp)  (*(void **)(bp))                                                    //Get the address of the previous free block
+#define WSIZE 4                                                                             
+#define DSIZE 8                                                                             
+#define CHUNKSIZE 16                                                                       
+#define OVERHEAD 24                                                                         
+#define MAX(x ,y)  ((x) > (y) ? (x) : (y))                                                  
+#define PACK(size, alloc)  ((size) | (alloc))                                               
+#define GET(p)  (*(size_t *)(p))                                                            
+#define PUT(p, value)  (*(size_t *)(p) = (value))                                           
+#define GET_SIZE(p)  (GET(p) & ~0x7)                                                        
+#define GET_ALLOC(p)  (GET(p) & 0x1)                                                        
+#define HDRP(bp)  ((void *)(bp) - WSIZE)                                                    
+#define FTRP(bp)  ((void *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)                              
+#define NEXT_BLKP(bp)  ((void *)(bp) + GET_SIZE(HDRP(bp)))                                  
+#define PREV_BLKP(bp)  ((void *)(bp) - GET_SIZE(HDRP(bp) - WSIZE))                          
+#define NEXT_FREEP(bp)  (*(void **)(bp + DSIZE))                                           
+#define PREV_FREEP(bp)  (*(void **)(bp))                                                   
 
 static char *heap_listp = 0;
 static char *free_listp = 0;                                                                
