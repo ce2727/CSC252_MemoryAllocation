@@ -44,7 +44,6 @@ team_t team = {
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-/*Additional Macros defined*/
 #define WSIZE 4                                                                             //Size of a word
 #define DSIZE 8                                                                             //Size of a double word
 #define CHUNKSIZE 16                                                                        //Initial heap size
@@ -225,4 +224,14 @@ static void place(void* bp, size_t size)
 	}
 }
 
+static void* find_fit(size_t size)
+{
+	void* bp;
+	
+	for(bp = free_listp; GET_ALLOC(HDRP(bp)) == 0; bp = NEXT_FREEP(bp))
+	{
+		if(size <= GET_SIZE(HDRP(bp))) return bp;
+	}
 
+	return NULL;
+}
